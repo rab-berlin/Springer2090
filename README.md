@@ -2,8 +2,8 @@
 
 Das Springerproblem (Knight's Tour) für den Busch Microtronic 2090 mit 8x8-LED-Matrix und 4x4-Keypad: Der Springer soll jedes Feld der Matrix genau einmal betreten.
 
-- 252 Programmschritte, 4 frei
-- Datei: [springer.mic](springer.mic) (Version 06)
+- 254 Programmschritte, 2 frei
+- Datei: [springer.mic](springer.mic) (Version 07)
 
 ## Spiel
 
@@ -35,9 +35,9 @@ Matrix einschalten (siehe unten), `HALT` `NEXT` `00` `RUN`. Das Programm löscht
 Das Programm arbeitet mit dem [ESP2090 Studio](https://github.com/rab-berlin/ESP2090) (Blockmodus mit Schlafmodus):
 
 - **Schlafen:** Zwischen den Bildern schläft die Matrix (ACK 15). Der ESP setzt dann kein REQ und ignoriert die Ausgänge, so sind Eingang 1 und die Ausgänge frei für den Keypad-Scan.
-- **Wecken und Bild:** Für ein Bild weckt das Programm die Matrix mit F und dann 0 auf den Ausgängen. Danach folgen sofort ACK 1, genau ein Befehl und die 16 Register.
+- **Wecken und Bild:** Für ein Bild weckt das Programm die Matrix mit F und dann 0 auf den Ausgängen. Dann wartet es auf REQ und sendet ACK 1, genau einen Befehl und die 16 Register. Das Warten macht das Programm unabhängig davon, wie schnell der ESP aufwacht.
 - **Wieder schlafen:** Danach setzt das Programm die Ausgänge auf 0 und legt die Matrix wieder schlafen.
 
 Auf der Weboberfläche „LED on“ drücken, im [Emulator2090](https://github.com/rab-berlin/Emulator2090) die Matrix mit `m` einschalten (Modus ESP). Die Matrix muss vor dem Start eingeschaltet sein.
 
-Bis Version 05 lief das Programm mit dem früheren Blockprotokoll (Startnibble 1, Endnibble 0, Umschaltsignal F). Version 06 hat eine gemeinsame Routine für Schlafen und Wecken und ist dadurch 3 Schritte kürzer.
+Bis Version 05 lief das Programm mit dem früheren Blockprotokoll (Startnibble 1, Endnibble 0, Umschaltsignal F). Version 06 hat eine gemeinsame Routine für Schlafen und Wecken und ist dadurch 3 Schritte kürzer; Version 07 wartet nach dem Wecken auf REQ (+2).
