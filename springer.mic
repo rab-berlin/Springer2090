@@ -1,4 +1,4 @@
-; springer-07.mic - Springer (Knight's Tour) fuer Busch Microtronic 2090
+; springer-08.mic - Springer (Knight's Tour) fuer Busch Microtronic 2090
 ; 8x8-LED-Matrix (ESP2090 Studio) + 4x4-Keypad. Der Springer muss jedes Feld genau einmal betreten.
 ; Startfeld zufaellig (RND). Besuchte Felder leuchten, das aktuelle Feld blinkt (ca. 0,8-0,9 s an/aus).
 ; Tasten (Richtung wie auf dem Keypad angeordnet, 0-3 unten, C-F oben):
@@ -14,9 +14,11 @@
 ; Matrix vor RUN einschalten (Weboberflaeche: LED on, Emulator2090: m). Zwischen den Bildern schlaeft sie
 ;   (ACK 15, kein REQ, Ausgaenge werden ignoriert), damit das Keypad Eingang 1 und die Ausgaenge nutzen kann;
 ;   vor dem Bild weckt F, dann folgt ACK 1 mit den 16 Registern.
-; Das Programm loescht R und M selbst (CLEAR/EXRL/EXRM/CLEAR). 254 Schritte (00-FD), frei: 2.
+; Das Programm loescht R und M selbst (CLEAR/EXRL/EXRM/CLEAR). 255 Schritte (00-FE), frei: 1.
 ; Version 06: ESP2090 Studio (Schlaf/Wecken statt Umschaltsignal, Schlaf-Routine am Ende), 3 Schritte weniger.
 ; Version 07: nach dem Wecken auf REQ warten statt ACK 1 blind zu senden (+2 Schritte).
+; Version 08: Wecken als Handshake. Das F bleibt stehen, bis der ESP mit REQ antwortet, dann folgt direkt
+;   ACK 1 (keine 0 dazwischen). So geht kein Wecken verloren, egal wie spaet der ESP nachsieht.
 
 ; Register R8-RF (Variablen):
 ;   8 X (Spalte 0-7, 0 = links)   9 Y (Zeile 0-7, 0 = unten)
@@ -41,7 +43,7 @@ F0D   ; 01            EXRL
 F0E   ; 02            EXRM
 F08   ; 03            CLEAR
 F02   ; 04            DISOUT       Display aus: 9,3 ms je Befehl (Matrix-Takt)
-BF6   ; 05            CALL Schlaf  Matrix schlafen: Eingang 1 und Ausgaenge frei fuers Keypad
+BF7   ; 05            CALL Schlaf  Matrix schlafen: Eingang 1 und Ausgaenge frei fuers Keypad
 F05   ; 06            RND          Startfeld zufaellig
 0D8   ; 07            MOV D,8
 378   ; 08            ANDI 7,8     X = 0-7
@@ -49,14 +51,14 @@ F05   ; 06            RND          Startfeld zufaellig
 379   ; 0A            ANDI 7,9     Y = 0-7
 10D   ; 0B            MOVI 0,D     Zaehler = 1 (Startfeld)
 11C   ; 0C            MOVI 1,C
-BAF   ; 0D            CALL Pos
+BB0   ; 0D            CALL Pos
 02F   ; 0E            MOV 2,F      Startfeld setzen
-BBE   ; 0F            CALL Zugriff
+BBF   ; 0F            CALL Zugriff
 11E   ; 10  Scan:     MOVI 1,E     Keypad-Zeile 1 (Tasten 1, 2)
 FEE   ; 11            DOT E
 FD0   ; 12            DIN 0
 F90   ; 13            SHR 0        Taste 0 (Bit 1) -> Carry
-DA7   ; 14            BRC Punkte
+DA8   ; 14            BRC Punkte
 330   ; 15            ANDI 3,0     Tasten 1, 2 (nach SHR Wert 1, 2)
 E1A   ; 16            BRZ S2
 FA0   ; 17            SHL 0        zurueck auf Wert 2, 4
@@ -98,7 +100,7 @@ D61   ; 39            BRC Blink    gehalten: wie keine Taste
 E40   ; 3B            BRZ Zug
 01E   ; 3C            MOV 1,E      ja: wieder einschalten
 02F   ; 3D            MOV 2,F
-BBE   ; 3E            CALL Zugriff
+BBF   ; 3E            CALL Zugriff
 10A   ; 3F            MOVI 0,A
 083   ; 40  Zug:      MOV 8,3      alte Lage merken
 094   ; 41            MOV 9,4
@@ -108,23 +110,23 @@ BBE   ; 3E            CALL Zugriff
 D4D   ; 45            BRC Zurueck
 979   ; 46            CMPI 7,9
 D4D   ; 47            BRC Zurueck
-BAF   ; 48            CALL Pos
+BB0   ; 48            CALL Pos
 10F   ; 49            MOVI 0,F     nur lesen
-BBE   ; 4A            CALL Zugriff
+BBF   ; 4A            CALL Zugriff
 22F   ; 4B            AND 2,F      Feld schon besucht?
 E53   ; 4C            BRZ Frei
 038   ; 4D  Zurueck:  MOV 3,8      ungueltiger Zug: alte Lage
 049   ; 4E            MOV 4,9
 97B   ; 4F            CMPI 7,B     Pruefung: naechste Richtung
-D92   ; 50            BRC PrNext
-BAF   ; 51            CALL Pos     P und Maske wieder fuer das aktuelle Feld
+D93   ; 50            BRC PrNext
+BB0   ; 51            CALL Pos     P und Maske wieder fuer das aktuelle Feld
 C61   ; 52            GOTO Blink
 97B   ; 53  Frei:     CMPI 7,B     Pruefung: freies Feld gefunden
-DA0   ; 54            BRC PrFrei
+DA1   ; 54            BRC PrFrei
 1FB   ; 55            MOVI F,B     nach dem Bild pruefen, ob es weitergeht
 01E   ; 56            MOV 1,E      neues Feld setzen (Pos lief schon)
 02F   ; 57            MOV 2,F
-BBE   ; 58            CALL Zugriff
+BBF   ; 58            CALL Zugriff
 51C   ; 59            ADDI 1,C     Zaehler + 1 (dezimal)
 99C   ; 5A            CMPI 9,C
 D5D   ; 5B            BRC Zehner
@@ -142,7 +144,7 @@ C6A   ; 66            GOTO BlTun
 10F   ; 67  BlAus:    MOVI 0,F     F = -K (ausschalten)
 62F   ; 68            SUB 2,F
 11A   ; 69            MOVI 1,A
-BBE   ; 6A  BlTun:    CALL Zugriff
+BBF   ; 6A  BlTun:    CALL Zugriff
 907   ; 6B  Anzeige:  CMPI 0,7     untere Haelfte muss in M0-M7 liegen
 E73   ; 6C            BRZ AnzEin
 F0D   ; 6D            EXRL         Haelften tauschen, R bleibt gleich
@@ -151,142 +153,143 @@ F0F   ; 6F            EXRA
 F0D   ; 70            EXRL
 F0E   ; 71            EXRM
 107   ; 72            MOVI 0,7
-BF9   ; 73  AnzEin:   CALL Tog     Matrix wecken (F, dann 0): der ESP setzt sofort REQ
-F0D   ; 74            EXRL         R0-R7 = Brett unten
-FDE   ; 75  Bereit:   DIN E        nach dem Wecken auf REQ warten (danach = 1 = ACK)
-31E   ; 76            ANDI 1,E
-E75   ; 77            BRZ Bereit
-FEE   ; 78            DOT E        ACK 1
-F0E   ; 79            EXRM         genau ein Befehl zwischen ACK und erstem Wert: R8-RF = Brett oben
-FE0   ; 7A            DOT 0
-FE1   ; 7B            DOT 1
-FE2   ; 7C            DOT 2
-FE3   ; 7D            DOT 3
-FE4   ; 7E            DOT 4
-FE5   ; 7F            DOT 5
-FE6   ; 80            DOT 6
-FE7   ; 81            DOT 7
-FE8   ; 82            DOT 8
-FE9   ; 83            DOT 9
-FEA   ; 84            DOT A
-FEB   ; 85            DOT B
-FEC   ; 86            DOT C
-FED   ; 87            DOT D
-FEE   ; 88            DOT E
-FEF   ; 89            DOT F
-F0E   ; 8A            EXRM
-10E   ; 8B            MOVI 0,E     Ausgaenge 0: Uebertragung fertig
-FEE   ; 8C            DOT E
-F0D   ; 8D            EXRL
-BF6   ; 8E            CALL Schlaf  Matrix schlafen (Keypad frei)
-97B   ; 8F            CMPI 7,B     gerade gezogen? -> Pruefung (siehe unten)
-D40   ; 90            BRC Zug
-C10   ; 91            GOTO Scan
-71B   ; 92  PrNext:   SUBI 1,B
-97B   ; 93            CMPI 7,B
-EA5   ; 94            BRZ Fertig   alle 8 Richtungen gesperrt
-9BB   ; 95            CMPI B,B
-E9C   ; 96            BRZ PrTausch
-060   ; 97            MOV 6,0      drehen: (dx,dy) -> (-dy,dx)
-056   ; 98            MOV 5,6
-105   ; 99            MOVI 0,5
-605   ; 9A            SUB 0,5
-C40   ; 9B            GOTO Zug
-050   ; 9C  PrTausch: MOV 5,0      dx und dy tauschen
-065   ; 9D            MOV 6,5
-006   ; 9E            MOV 0,6
-C40   ; 9F            GOTO Zug
-038   ; A0  PrFrei:   MOV 3,8      es geht weiter: aktuelle Lage zurueck
-049   ; A1            MOV 4,9
-BAF   ; A2            CALL Pos
-11B   ; A3            MOVI 1,B     Taste gilt weiter als gehalten
-C10   ; A4            GOTO Scan
-F2C   ; A5  Fertig:   DISP 2,C     kein Zug mehr: Punkte anzeigen (64 = gewonnen)
-CA6   ; A6  Ende:     GOTO Ende
-F2C   ; A7  Punkte:   DISP 2,C     Anzeige an (Matrix behaelt ihr Bild)
-11E   ; A8  PkWarte:  MOVI 1,E     Keypad-Zeile 1
-FEE   ; A9            DOT E
-FD0   ; AA            DIN 0
-F90   ; AB            SHR 0        Taste 0 noch gedrueckt?
-DA8   ; AC            BRC PkWarte
-F02   ; AD            DISOUT       Anzeige aus: wieder Matrix-Takt
-C10   ; AE            GOTO Scan
-09E   ; AF  Pos:      MOV 9,E
-4EE   ; B0            ADD E,E
-938   ; B1            CMPI 3,8
-FBE   ; B2            ADC E
-0E1   ; B3            MOV E,1
-082   ; B4            MOV 8,2      X mod 4 = 0,1,2,3
-332   ; B5            ANDI 3,2
-512   ; B6            ADDI 1,2     1,2,3,4
-922   ; B7            CMPI 2,2
-DBA   ; B8            BRC PsHoch
-F07   ; B9            RET          1, 2 stimmen schon
-722   ; BA  PsHoch:   SUBI 2,2     3,4 -> 1,2 -> 4,8
-422   ; BB            ADD 2,2
+1FE   ; 73  AnzEin:   MOVI F,E     Matrix wecken: F anlegen und halten ...
+FEE   ; 74            DOT E
+F0D   ; 75            EXRL         R0-R7 = Brett unten
+FDE   ; 76  Bereit:   DIN E        ... bis der ESP mit REQ antwortet (danach = 1 = ACK)
+31E   ; 77            ANDI 1,E
+E76   ; 78            BRZ Bereit
+FEE   ; 79            DOT E        ACK 1 direkt nach dem F
+F0E   ; 7A            EXRM         genau ein Befehl zwischen ACK und erstem Wert: R8-RF = Brett oben
+FE0   ; 7B            DOT 0
+FE1   ; 7C            DOT 1
+FE2   ; 7D            DOT 2
+FE3   ; 7E            DOT 3
+FE4   ; 7F            DOT 4
+FE5   ; 80            DOT 5
+FE6   ; 81            DOT 6
+FE7   ; 82            DOT 7
+FE8   ; 83            DOT 8
+FE9   ; 84            DOT 9
+FEA   ; 85            DOT A
+FEB   ; 86            DOT B
+FEC   ; 87            DOT C
+FED   ; 88            DOT D
+FEE   ; 89            DOT E
+FEF   ; 8A            DOT F
+F0E   ; 8B            EXRM
+10E   ; 8C            MOVI 0,E     Ausgaenge 0: Uebertragung fertig
+FEE   ; 8D            DOT E
+F0D   ; 8E            EXRL
+BF7   ; 8F            CALL Schlaf  Matrix schlafen (Keypad frei)
+97B   ; 90            CMPI 7,B     gerade gezogen? -> Pruefung (siehe unten)
+D40   ; 91            BRC Zug
+C10   ; 92            GOTO Scan
+71B   ; 93  PrNext:   SUBI 1,B
+97B   ; 94            CMPI 7,B
+EA6   ; 95            BRZ Fertig   alle 8 Richtungen gesperrt
+9BB   ; 96            CMPI B,B
+E9D   ; 97            BRZ PrTausch
+060   ; 98            MOV 6,0      drehen: (dx,dy) -> (-dy,dx)
+056   ; 99            MOV 5,6
+105   ; 9A            MOVI 0,5
+605   ; 9B            SUB 0,5
+C40   ; 9C            GOTO Zug
+050   ; 9D  PrTausch: MOV 5,0      dx und dy tauschen
+065   ; 9E            MOV 6,5
+006   ; 9F            MOV 0,6
+C40   ; A0            GOTO Zug
+038   ; A1  PrFrei:   MOV 3,8      es geht weiter: aktuelle Lage zurueck
+049   ; A2            MOV 4,9
+BB0   ; A3            CALL Pos
+11B   ; A4            MOVI 1,B     Taste gilt weiter als gehalten
+C10   ; A5            GOTO Scan
+F2C   ; A6  Fertig:   DISP 2,C     kein Zug mehr: Punkte anzeigen (64 = gewonnen)
+CA7   ; A7  Ende:     GOTO Ende
+F2C   ; A8  Punkte:   DISP 2,C     Anzeige an (Matrix behaelt ihr Bild)
+11E   ; A9  PkWarte:  MOVI 1,E     Keypad-Zeile 1
+FEE   ; AA            DOT E
+FD0   ; AB            DIN 0
+F90   ; AC            SHR 0        Taste 0 noch gedrueckt?
+DA9   ; AD            BRC PkWarte
+F02   ; AE            DISOUT       Anzeige aus: wieder Matrix-Takt
+C10   ; AF            GOTO Scan
+09E   ; B0  Pos:      MOV 9,E
+4EE   ; B1            ADD E,E
+938   ; B2            CMPI 3,8
+FBE   ; B3            ADC E
+0E1   ; B4            MOV E,1
+082   ; B5            MOV 8,2      X mod 4 = 0,1,2,3
+332   ; B6            ANDI 3,2
+512   ; B7            ADDI 1,2     1,2,3,4
+922   ; B8            CMPI 2,2
+DBB   ; B9            BRC PsHoch
+F07   ; BA            RET          1, 2 stimmen schon
+722   ; BB  PsHoch:   SUBI 2,2     3,4 -> 1,2 -> 4,8
 422   ; BC            ADD 2,2
-F07   ; BD            RET
-0E0   ; BE  Zugriff:  MOV E,0
-380   ; BF            ANDI 8,0     gebrauchte Haelfte 0 / 8
-807   ; C0            CMP 0,7
-EC8   ; C1            BRZ Auf
-F0D   ; C2            EXRL         Haelften tauschen, R bleibt gleich
-F0E   ; C3            EXRM
-F0F   ; C4            EXRA
-F0D   ; C5            EXRL
-F0E   ; C6            EXRM
-007   ; C7            MOV 0,7      H merken
-37E   ; C8  Auf:      ANDI 7,E
-F0D   ; C9            EXRL         Fenster: R0-R7 = Brett
-93E   ; CA            CMPI 3,E
-DE1   ; CB            BRC AHoch
-91E   ; CC            CMPI 1,E
-DD7   ; CD            BRC A23
-ED3   ; CE            BRZ L1
-4F0   ; CF  L0:       ADD F,0
-00F   ; D0            MOV 0,F
-F0D   ; D1            EXRL         Fenster zu
-F07   ; D2            RET
-4F1   ; D3  L1:       ADD F,1
-01F   ; D4            MOV 1,F
-F0D   ; D5            EXRL         Fenster zu
-F07   ; D6            RET
-92E   ; D7  A23:      CMPI 2,E
-EDD   ; D8            BRZ L2
-4F3   ; D9  L3:       ADD F,3
-03F   ; DA            MOV 3,F
-F0D   ; DB            EXRL         Fenster zu
-F07   ; DC            RET
-4F2   ; DD  L2:       ADD F,2
-02F   ; DE            MOV 2,F
-F0D   ; DF            EXRL         Fenster zu
-F07   ; E0            RET
-95E   ; E1  AHoch:    CMPI 5,E
-DEC   ; E2            BRC A67
-EE8   ; E3            BRZ L5
-4F4   ; E4  L4:       ADD F,4
-04F   ; E5            MOV 4,F
-F0D   ; E6            EXRL         Fenster zu
-F07   ; E7            RET
-4F5   ; E8  L5:       ADD F,5
-05F   ; E9            MOV 5,F
-F0D   ; EA            EXRL         Fenster zu
-F07   ; EB            RET
-96E   ; EC  A67:      CMPI 6,E
-EF2   ; ED            BRZ L6
-4F7   ; EE  L7:       ADD F,7
-07F   ; EF            MOV 7,F
-F0D   ; F0            EXRL         Fenster zu
-F07   ; F1            RET
-4F6   ; F2  L6:       ADD F,6
-06F   ; F3            MOV 6,F
-F0D   ; F4  Zu:       EXRL         Fenster zu
-F07   ; F5            RET
-FD0   ; F6  Schlaf:   DIN 0        Matrix schlafen legen: auf REQ (Eingang 1) warten ...
-310   ; F7            ANDI 1,0
-EF6   ; F8            BRZ Schlaf
-1F0   ; F9  Tog:      MOVI F,0     ... ACK 15 (schlafen); Einsprung Tog: F weckt die Matrix
-FE0   ; FA            DOT 0
-100   ; FB            MOVI 0,0     Ausgaenge 0: nach dem Schlafen kann F wieder wecken,
-FE0   ; FC            DOT 0        nach dem Wecken gilt das naechste ACK
-F07   ; FD            RET
+422   ; BD            ADD 2,2
+F07   ; BE            RET
+0E0   ; BF  Zugriff:  MOV E,0
+380   ; C0            ANDI 8,0     gebrauchte Haelfte 0 / 8
+807   ; C1            CMP 0,7
+EC9   ; C2            BRZ Auf
+F0D   ; C3            EXRL         Haelften tauschen, R bleibt gleich
+F0E   ; C4            EXRM
+F0F   ; C5            EXRA
+F0D   ; C6            EXRL
+F0E   ; C7            EXRM
+007   ; C8            MOV 0,7      H merken
+37E   ; C9  Auf:      ANDI 7,E
+F0D   ; CA            EXRL         Fenster: R0-R7 = Brett
+93E   ; CB            CMPI 3,E
+DE2   ; CC            BRC AHoch
+91E   ; CD            CMPI 1,E
+DD8   ; CE            BRC A23
+ED4   ; CF            BRZ L1
+4F0   ; D0  L0:       ADD F,0
+00F   ; D1            MOV 0,F
+F0D   ; D2            EXRL         Fenster zu
+F07   ; D3            RET
+4F1   ; D4  L1:       ADD F,1
+01F   ; D5            MOV 1,F
+F0D   ; D6            EXRL         Fenster zu
+F07   ; D7            RET
+92E   ; D8  A23:      CMPI 2,E
+EDE   ; D9            BRZ L2
+4F3   ; DA  L3:       ADD F,3
+03F   ; DB            MOV 3,F
+F0D   ; DC            EXRL         Fenster zu
+F07   ; DD            RET
+4F2   ; DE  L2:       ADD F,2
+02F   ; DF            MOV 2,F
+F0D   ; E0            EXRL         Fenster zu
+F07   ; E1            RET
+95E   ; E2  AHoch:    CMPI 5,E
+DED   ; E3            BRC A67
+EE9   ; E4            BRZ L5
+4F4   ; E5  L4:       ADD F,4
+04F   ; E6            MOV 4,F
+F0D   ; E7            EXRL         Fenster zu
+F07   ; E8            RET
+4F5   ; E9  L5:       ADD F,5
+05F   ; EA            MOV 5,F
+F0D   ; EB            EXRL         Fenster zu
+F07   ; EC            RET
+96E   ; ED  A67:      CMPI 6,E
+EF3   ; EE            BRZ L6
+4F7   ; EF  L7:       ADD F,7
+07F   ; F0            MOV 7,F
+F0D   ; F1            EXRL         Fenster zu
+F07   ; F2            RET
+4F6   ; F3  L6:       ADD F,6
+06F   ; F4            MOV 6,F
+F0D   ; F5  Zu:       EXRL         Fenster zu
+F07   ; F6            RET
+FD0   ; F7  Schlaf:   DIN 0        Matrix schlafen legen: auf REQ (Eingang 1) warten ...
+310   ; F8            ANDI 1,0
+EF7   ; F9            BRZ Schlaf
+1F0   ; FA            MOVI F,0     ... ACK 15 (schlafen)
+FE0   ; FB            DOT 0
+100   ; FC            MOVI 0,0     nach 2 Schritten wegnehmen (laenger als 40 ms waere Wecken)
+FE0   ; FD            DOT 0
+F07   ; FE            RET
