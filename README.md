@@ -33,20 +33,22 @@ Matrix einschalten („LED on“ in der Weboberfläche, im Emulator Taste `m`), 
 
 ## Technik: Brett und Bild getrennt
 
-Das Programm schickt kein Bild mehr. Der ESP merkt sich das Bild, und das Programm ändert nur einzelne Pixel mit Zeichenbefehlen. Das Brett liegt trotzdem im Programm, in den Speicherregistern M0-MF, ein Bit je Feld (besucht oder nicht). Der ESP lässt sich nicht fragen, welche Felder besucht sind.
+**Schreibweise in diesem README:** Ein Register heißt `R0` bis `RF` (Speicher: `M0` bis `MF`), ein Wert beginnt mit `#`, zum Beispiel `#3` oder `#F`. `RF` ist also ein Register, `#F` die Zahl fünfzehn. Die Programmzeilen sind hier mit `R` und `#` geschrieben, in der Datei `springer.mic` stehen die Nummern ohne Zusatz: `MOVI #1,RA` heißt dort `MOVI 1,A`.
+
+Das Programm schickt kein Bild mehr. Der ESP merkt sich das Bild, und das Programm ändert nur einzelne Pixel mit Zeichenbefehlen. Das Brett liegt trotzdem im Programm, in den Speicherregistern `M0`-`MF`, ein Bit je Feld (besucht oder nicht). Der ESP lässt sich nicht fragen, welche Felder besucht sind.
 
 | Register | Bedeutung |
 |---|---|
-| R3 / R4 | X / Y des aktuellen Feldes (0-7, X von links, Y von unten) |
-| R5 / R6 | dx, dy des Sprunges |
-| R8 / R9 | X / Y des Zielfeldes |
-| R1 / R2 | Brettregister P (0-F) und Maske K des zuletzt berechneten Feldes |
-| R7 | gefunden: im Durchlauf gab es mindestens ein freies Zielfeld |
-| RA | Hinweise sichtbar (1) |
-| RB | 0 = einzelner Zug, F-8 = Durchlauf über die 8 Richtungen |
-| RC / RD | Zähler Einer / Zehner (besuchte Felder dezimal) |
-| RE / RF | ACK / erstes Nibble des Matrix-Befehls (sonst Hilfsregister) |
-| R0 | Hilfsregister |
+| `R3` / `R4` | X / Y des aktuellen Feldes (`#0`-`#7`, X von links, Y von unten) |
+| `R5` / `R6` | dx, dy des Sprunges |
+| `R8` / `R9` | X / Y des Zielfeldes |
+| `R1` / `R2` | Nummer `P` des Brettregisters (`#0`-`#F`) und Maske `K` des zuletzt berechneten Feldes |
+| `R7` | gefunden: im Durchlauf gab es mindestens ein freies Zielfeld |
+| `RA` | Hinweise sichtbar (`#1`) |
+| `RB` | `#0` = einzelner Zug, `#F` bis `#8` = Durchlauf über die 8 Richtungen |
+| `RC` / `RD` | Zähler Einer / Zehner (besuchte Felder dezimal) |
+| `RE` / `RF` | ACK / erstes Nibble des Matrix-Befehls (sonst Hilfsregister) |
+| `R0` | Hilfsregister |
 
 ## Matrixprotokoll
 
@@ -55,9 +57,9 @@ Das Programm arbeitet mit dem [ESP2090 Studio](https://github.com/rab-berlin/ESP
 | Befehl | Wofür |
 |---|---|
 | ACK 3 (Zeichenart 3) | am Start alle Pixel aus |
-| ACK 14 | Farbe wählen: 1 rot, 3 gelb, 4 grün |
-| ACK 4 | Punkt: mit Pixel an (X + 8) oder nur die Farbe (Zeichenart 0) |
-| ACK 13 | Stapel der Bitmatrix: push (2) und pop (6) |
+| ACK 14 | Farbe wählen: `#1` rot, `#3` gelb, `#4` grün |
+| ACK 4 | Punkt: mit Pixel an (X + `#8`) oder nur die Farbe (Zeichenart `#0`) |
+| ACK 13 | Stapel der Bitmatrix: push (`#2`) und pop (`#6`) |
 
 Auf der Weboberfläche „LED on“ drücken, im Emulator die Matrix mit `m` einschalten. Die Matrix muss vor dem Start an sein: Das Programm wartet gleich am Anfang auf die erste Anfrage (REQ) der Matrix.
 
@@ -104,58 +106,198 @@ Quellen: Wikipedia „Knight's tour“, plus.maths.org „Knight's tour“. Die 
 
 ## Wie es gemacht ist
 
-Der 2090 hat keine indirekte Adressierung, rechnet nur mit 0-15 und hat nur ein Rücksprungregister. Springer passt trotzdem in 211 Schritte:
+Der 2090 hat keine indirekte Adressierung, rechnet nur mit 0-15 und hat nur ein Rücksprungregister. Springer passt trotzdem in 211 Schritte. Schreibweise wie oben: `RF` ist ein Register, `#F` ein Wert.
 
 ### Position in Registernummer und Maske
 
-`Pos` rechnet X und Y in das Brettregister P = 2·Y + (X ≥ 4) und die Maske K = 1 << (X mod 4) um. Das Aufdoppeln für die Zeile ist ein `ADD E,E`, das Ergebnis von X ≥ 4 holt `CMPI` über den Carry, und `ADC` addiert ihn dazu. Die Maske entsteht ohne Schleife: X mod 4 + 1 ist 1, 2, 3 oder 4. Für 1 und 2 stimmt der Wert schon (1, 2), für 3 und 4 wird 2 abgezogen und zweimal verdoppelt (1 → 4, 2 → 8).
+`POS` rechnet X und Y in die Brettregisternummer `P` = 2·Y + (X ≥ 4) und die Maske `K` = 1 << (X mod 4) um. Das Aufdoppeln für die Zeile ist ein `ADD RE,RE`, das Ergebnis von X ≥ 4 holt `CMPI` über den Carry, und `ADC` addiert ihn dazu. Die Maske entsteht ohne Schleife: X mod 4 + 1 ist `#1`, `#2`, `#3` oder `#4`. Für `#1` und `#2` stimmt der Wert schon (die Masken `#1`, `#2`), für `#3` und `#4` wird `#2` abgezogen und zweimal verdoppelt (`#1` → `#4`, `#2` → `#8`).
+
+```
+POS:  MOV  R9,RE       ; RE = Y
+      ADD  RE,RE       ; RE = 2 * Y
+      CMPI #3,R8       ; Carry = 1, wenn X > #3, also X >= 4
+      ADC  RE          ; RE = 2 * Y + Carry  = P
+      MOV  RE,R1       ; R1 = P
+      MOV  R8,R2       ; R2 = X
+      ANDI #3,R2       ; R2 = X mod 4        (#0 ... #3)
+      ADDI #1,R2       ; R2 = #1 ... #4
+      CMPI #2,R2       ; Carry, wenn R2 > #2
+      BRC  PSH
+      RET              ; #1 und #2 sind schon die Masken
+PSH:  SUBI #2,R2       ; #3 -> #1, #4 -> #2
+      ADD  R2,R2       ; verdoppeln
+      ADD  R2,R2       ; noch einmal: #4 oder #8
+      RET
+```
 
 ### Setzen und Lesen mit einer Routine
 
-`ZUGR` addiert F zum Brettregister M[P] und gibt den neuen Wert in F zurück:
+`ZUGR` addiert den Wert in `RF` zum Brettregister `M[P]` und gibt den neuen Wert in `RF` zurück:
 
-- **F = +K:** Feld als besucht eintragen,
-- **F = 0:** nur lesen. Das anschließende `AND K` zeigt, ob das Feld schon besucht ist.
+- **`RF` = `K`:** Feld als besucht eintragen,
+- **`RF` = `#0`:** nur lesen. Das anschließende `AND R2,RF` zeigt, ob das Feld schon besucht ist.
 
 Die Bits überlappen sich nie, weil nur auf ein freies Feld gesetzt wird. Deshalb gibt es keinen Übertrag.
 
+```
+      CALL POS         ; R1 = P, R2 = K des Zielfeldes
+      MOVI #0,RF       ; nur lesen
+      CALL ZUGR        ; RF = Inhalt von M[P]
+      AND  R2,RF       ; RF = RF UND K
+      BRZ  FREE        ; #0: Feld ist frei
+```
+
 ### Zwei Brett-Hälften, ein Fenster
 
-R0-R7 sind das Fenster auf das Brett. Die untere Hälfte (M0-M7, Y < 4) kommt mit `EXRL` hinein, die obere (M8-MF, Y ≥ 4) mit `EXRA, EXRM, EXRA`. Ob die obere Hälfte gebraucht wird, steht im Register R9: Y ≥ 4 (`CMPI 3,9`). So braucht das Programm für das Fenster kein eigenes Merkregister, und dieselbe Folge schließt es wieder.
+`R0`-`R7` sind das Fenster auf das Brett. Die untere Hälfte (`M0`-`M7`, Y < 4) kommt mit `EXRL` hinein, die obere (`M8`-`MF`, Y ≥ 4) mit `EXRA, EXRM, EXRA`. Ob die obere Hälfte gebraucht wird, steht im Register `R9`: Y ≥ 4 (`CMPI #3,R9`). So braucht das Programm für das Fenster kein eigenes Merkregister, und dieselbe Folge schließt es wieder.
+
+```
+ZUGR: CMPI #3,R9       ; Carry = 1, wenn Y > #3
+      BRC  ZUP
+      EXRL             ; untere Hälfte: R0-R7 = M0-M7
+      GOTO ZSEL
+ZUP:  EXRA             ; obere Hälfte: R0-R7 = M8-MF
+      EXRM
+      EXRA
+ZSEL: ANDI #7,RE       ; welches Register im Fenster: P mod 8
+      ...              ; Vergleichsbaum bis zum richtigen Register, z. B.:
+Z0:   ADD  RF,R0       ; R0 = R0 + RF
+      MOV  R0,RF       ; RF = neuer Wert
+      GOTO ZT
+ZT:   CMPI #3,R9       ; dieselbe Entscheidung noch einmal ...
+      BRC  ZTU
+      EXRL             ; ... und das Fenster schließen
+      RET
+```
 
 ### Die Tasten als Sprungkarte
 
-Die Tasten liegen wie auf einem 4x4-Feld: k = 4·Reihe + Spalte. Reihe und Spalte 0, 1, 2, 3 bedeuten −2, −1, +1, +2, und daraus entstehen dx und dy. Die Umrechnung ist ein Dreischritt ohne Fallunterscheidung: Wert = Zahl + (Zahl > 1) − 2. `CMPI` setzt den Carry für Zahl > 1, `ADC` addiert ihn, `SUBI 2` zieht 2 ab.
+Die Tasten liegen wie auf einem 4x4-Feld: k = 4·Reihe + Spalte. Reihe und Spalte `#0`, `#1`, `#2`, `#3` bedeuten −2, −1, +1, +2, und daraus entstehen dx und dy. Die Umrechnung ist ein Dreischritt ohne Fallunterscheidung: Wert = Zahl + (Zahl > 1) − 2. `CMPI` setzt den Carry für Zahl > 1, `ADC` addiert ihn, `SUBI #2` zieht 2 ab.
+
+```
+      KIN  R0          ; R0 = gedrückte Taste (#0 ... #F)
+      MOV  R0,R5
+      ANDI #3,R5       ; R5 = Spalte (k mod 4)
+      CMPI #1,R5       ; Carry = 1, wenn Spalte > #1
+      ADC  R5          ; R5 = Spalte + Carry
+      SUBI #2,R5       ; R5 = dx = Spalte + Carry - 2
+      MOV  R0,R6
+      SHR  R6          ; zweimal: R6 = k div 4 = Reihe
+      SHR  R6
+      CMPI #1,R6
+      ADC  R6
+      SUBI #2,R6       ; R6 = dy
+```
 
 ### Gültige Taste durch Parität
 
-Welche der 16 Tasten Springertasten sind, erkennt das Programm an einem einzigen Bit. Ein Springersprung ist ±1 in einer Richtung und ±2 in der anderen. Die Summe dx + dy ist dann ungerade. Die Ecktasten (0 3 C F) haben ±2 und ±2, die mittleren (5 6 9 A) haben ±1 und ±1: Die Summe ist gerade. `ANDI 1` auf die Summe sagt also, ob die Taste gültig ist.
+Welche der 16 Tasten Springertasten sind, erkennt das Programm an einem einzigen Bit. Ein Springersprung ist ±1 in einer Richtung und ±2 in der anderen. Die Summe dx + dy ist dann ungerade. Die Ecktasten (`#0` `#3` `#C` `#F`) haben ±2 und ±2, die mittleren (`#5` `#6` `#9` `#A`) haben ±1 und ±1: Die Summe ist gerade. `ANDI #1` auf die Summe sagt also, ob die Taste gültig ist.
+
+```
+      MOV  R5,R0
+      ADD  R6,R0       ; R0 = dx + dy
+      ANDI #1,R0       ; Bit 1 = ungerade ?
+      BRZ  INVAL       ; gerade: keine Springertaste
+```
 
 ### Zuggültigkeit durch eine Vorzeichen-Beobachtung
 
-Ein Zug addiert dx und dy zu X und Y. Negative Werte erscheinen im 4-Bit-Register als 8-F, und alles ab 8 liegt auch über dem Brett. Ein einziger Vergleich (`CMPI 7`, Carry) fängt deshalb beide Ränder in einem Test ab, links wie rechts, oben wie unten. Danach liest das Programm das Brett: Ist das Zielfeld schon besucht, gilt der Zug nicht.
+Ein Zug addiert dx und dy zu X und Y. Negative Werte erscheinen im 4-Bit-Register als `#8`-`#F`, und alles ab `#8` liegt auch über dem Brett. Ein einziger Vergleich (`CMPI #7`, Carry) fängt deshalb beide Ränder in einem Test ab, links wie rechts, oben wie unten. Danach liest das Programm das Brett: Ist das Zielfeld schon besucht, gilt der Zug nicht.
+
+```
+PROBE: MOV  R3,R8      ; Ziel = aktuelles Feld ...
+       MOV  R4,R9
+       ADD  R5,R8      ; ... + (dx, dy)
+       ADD  R6,R9
+       CMPI #7,R8      ; Carry = 1, wenn X > #7: rechts raus oder negativ (#8-#F)
+       BRC  BAD
+       CMPI #7,R9      ; dasselbe für Y
+       BRC  BAD
+```
 
 ### Ein Durchlauf, drei Aufgaben
 
-Dieselbe Prüfung dient als Einzelprüfung für den Zug der Taste und als Durchlauf über alle acht Richtungen. Im Durchlauf entscheidet das Register RA, was mit einem freien Zielfeld geschieht:
+Dieselbe Prüfung dient als Einzelprüfung für den Zug der Taste und als Durchlauf über alle acht Richtungen. Im Durchlauf entscheidet das Register `RA`, was mit einem freien Zielfeld geschieht:
 
 - **Zählen** (nach jedem Zug): Gibt es überhaupt ein freies Zielfeld? Wenn nicht, ist das Spiel zu Ende.
 - **Hinweise:** Jedes freie Zielfeld wird grün angeschaltet.
 
-Die acht Richtungen entstehen durch Rechnen: Start mit (dx, dy) = (1, 2). Dreimal um 90° drehen, (dx, dy) → (−dy, dx), das sind vier Richtungen. Dann dx und dy vertauschen und noch dreimal drehen, das sind die anderen vier. Das Register RB zählt von F bis 8 und sagt, wo im Durchlauf man ist. Steht RB auf 0, ist es eine Einzelprüfung. Weil das Programm nur eine Rücksprungadresse hat, ist der Durchlauf kein Unterprogramm, sondern läuft im Hauptprogramm: Am Ende entscheidet RA, wohin es weitergeht.
+Die acht Richtungen entstehen durch Rechnen: Start mit (dx, dy) = (1, 2). Dreimal um 90° drehen, (dx, dy) → (−dy, dx), das sind vier Richtungen. Dann dx und dy vertauschen und noch dreimal drehen, das sind die anderen vier. Das Register `RB` zählt von `#F` bis `#8` und sagt, wo im Durchlauf man ist. Steht `RB` auf `#0`, ist es eine Einzelprüfung. Weil das Programm nur eine Rücksprungadresse hat, ist der Durchlauf kein Unterprogramm, sondern läuft im Hauptprogramm: Am Ende entscheidet `RA`, wohin es weitergeht.
+
+```
+NEXT: SUBI #1,RB       ; RB zählt #F, #E, ... herunter
+      CMPI #7,RB
+      BRZ  PEND        ; RB = #7: alle acht probiert
+      CMPI #B,RB
+      BRZ  SWAP        ; RB = #B: nach vier Richtungen tauschen
+      MOV  R6,R0       ; drehen: (dx, dy) -> (-dy, dx)
+      MOV  R5,R6       ; dy = dx
+      MOVI #0,R5
+      SUB  R0,R5       ; dx = 0 - alter dy
+      GOTO PROBE
+SWAP: MOV  R5,R0       ; dx und dy tauschen
+      MOV  R6,R5
+      MOV  R0,R6
+      GOTO PROBE
+```
 
 ### Hinweise ohne Löschen: push und pop
 
 Bevor die grünen Punkte gezeichnet werden, legt das Programm die Bitmatrix des ESP auf dessen Stapel (ACK 13, push). Beim nächsten gültigen Zug holt ein einziger Befehl (pop) sie zurück, und alle Hinweise sind weg. Das Programm muss sich die Hinweisfelder nicht merken und sie nicht einzeln löschen. Die grüne Farbe bleibt in der Farbmatrix stehen, schadet aber nicht: Ein Feld bekommt seine Farbe jedes Mal neu, wenn es leuchtet.
 
+```
+INVAL: CMPI #0,RA      ; Hinweise schon sichtbar?
+       BRC  LOOP       ; ja: nichts tun
+       MOVI #1,RA      ; RA = #1
+       MOVI #2,RF      ; zweites Nibble: #2 = push
+       MOVI #D,RE      ; ACK 13 (RE = #D)
+       CALL CMD
+       ...             ; grün einstellen, Durchlauf über alle Richtungen
+
+MOVE:  CMPI #0,RA      ; Zug: Hinweise sichtbar?
+       BRZ  MV1
+       MOVI #0,RA
+       MOVI #6,RF      ; #6 = pop: Hinweise weg
+       MOVI #D,RE      ; ACK 13
+       CALL CMD
+```
+
 ### Farben ohne Bildspeicher
 
-Ein Zug braucht vier Befehle: Das alte Feld wird rot gefärbt (nur die Farbe, das Pixel bleibt an: Zeichenart 0), das neue gelb angeschaltet. Zählt man Farbwahl und Punkt je Feld, sind das vier Matrix-Befehle statt eines ganzen Bildes mit 16 Registern. Die Matrix-Befehle laufen alle durch dieselbe Routine `CMD`. Die Einsprünge enden mit `GOTO CMD`, nicht mit `CALL`: So kehrt deren `RET` direkt zum Aufrufer zurück.
+Ein Zug braucht vier Befehle: Das alte Feld wird rot gefärbt (nur die Farbe, das Pixel bleibt an: Zeichenart `#0`), das neue gelb angeschaltet. Zählt man Farbwahl und Punkt je Feld, sind das vier Matrix-Befehle statt eines ganzen Bildes mit 16 Registern. Die Matrix-Befehle laufen alle durch dieselbe Routine `CMD`. Die Einsprünge enden mit `GOTO CMD`, nicht mit `CALL`: So kehrt deren `RET` direkt zum Aufrufer zurück.
+
+```
+      MOVI #1,RF       ; Farbe #1 = rot
+      CALL COLOR
+      CALL PTCOL       ; altes Feld nur umfärben
+      ...              ; Ziel wird das aktuelle Feld
+      MOVI #3,RF       ; Farbe #3 = gelb
+      CALL COLOR
+      CALL PTON        ; neues Feld gelb anschalten
+```
 
 ### Zähler ohne Umrechnung
 
-Der Zähler der besuchten Felder ist von Anfang an dezimal: `ADDI 1,C`, bei Überlauf über 9 wird C auf 0 gesetzt und D erhöht. So braucht die Anzeige kein `HXDZ`, und 64 steht als `64` da. Das Display ist nur an, solange das Programm auf eine Taste wartet. Für Matrix-Befehle muss es aus sein, sonst stimmt der 9,3-ms-Takt nicht.
+Der Zähler der besuchten Felder ist von Anfang an dezimal: `ADDI #1,RC`, bei Überlauf über `#9` wird `RC` auf `#0` gesetzt und `RD` erhöht. So braucht die Anzeige kein `HXDZ`, und 64 steht als `64` da. Das Display ist nur an, solange das Programm auf eine Taste wartet. Für Matrix-Befehle muss es aus sein, sonst stimmt der 9,3-ms-Takt nicht.
+
+```
+      ADDI #1,RC       ; Einer + 1
+      CMPI #9,RC       ; Carry = 1, wenn RC > #9
+      BRC  ZEHN
+      GOTO PINIT
+ZEHN: MOVI #0,RC       ; Einer zurück auf #0
+      ADDI #1,RD       ; Zehner + 1
+      GOTO PINIT
+```
 
 ### Startfeld
 
-`RND` legt drei Ziffern in D, E, F ab. Das Programm nimmt D und E, maskiert sie mit 7 und hat damit X und Y des Startfelds. Weil `RND` die Register D-F überschreibt, kommt der Zufall vor allen anderen Einstellungen.
+`RND` legt drei Ziffern in `RD`, `RE`, `RF` ab. Das Programm nimmt `RD` und `RE`, maskiert sie mit `#7` und hat damit X und Y des Startfelds. Weil `RND` die Register `RD`-`RF` überschreibt, kommt der Zufall vor allen anderen Einstellungen.
+
+```
+      RND              ; RD, RE, RF = Zufallsziffern
+      MOV  RD,R8
+      ANDI #7,R8       ; X = #0 ... #7
+      MOV  RE,R9
+      ANDI #7,R9       ; Y = #0 ... #7
+```
