@@ -3,7 +3,7 @@
 Das Springerproblem (Knight's Tour) für den Busch Microtronic 2090 mit 8x8-LED-Matrix: Der Springer soll jedes Feld der Matrix genau einmal betreten. Bedient wird mit den Hex-Tasten des Microtronic, ein Keypad ist nicht nötig.
 
 - 211 Programmschritte, 45 frei
-- Datei: [springer.mic](springer.mic) (Version 10)
+- Datei: [springer.mic](springer.mic)
 
 ## Spiel
 
