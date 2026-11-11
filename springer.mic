@@ -1,289 +1,284 @@
-; springer-09.mic - Springer (Knight's Tour) fuer Busch Microtronic 2090
-; 8x8-LED-Matrix (ESP2090 Studio) + 4x4-Keypad. Der Springer muss jedes Feld genau einmal betreten.
-; Startfeld zufaellig (RND). Besuchte Felder leuchten, das aktuelle Feld blinkt (ca. 0,8-0,9 s an/aus).
-; Tasten (Richtung wie auf dem Keypad angeordnet, 0-3 unten, C-F oben):
+; springer-10.mic - Springer (Knight's Tour) fuer Busch Microtronic 2090 mit 8x8-LED-Matrix (ESP2090 Studio)
+; 211 Schritte (00-D2), frei: 45
+; Der Springer soll jedes Feld der Matrix genau einmal betreten.  Startfeld zufaellig (RND).
+; Bedienung mit den Hex-Tasten des Microtronic (KIN), kein Keypad.  Die Tasten sind wie die Spruenge auf einem
+; 4x4-Feld angeordnet (0-3 untere Reihe, C-F obere Reihe):
 ;   D: 1 links 2 hoch    E: 1 rechts 2 hoch
 ;   8: 2 links 1 hoch    B: 2 rechts 1 hoch
 ;   4: 2 links 1 runter  7: 2 rechts 1 runter
 ;   1: 1 links 2 runter  2: 1 rechts 2 runter
-;   0 (halten): Punkte = besuchte Felder dezimal in der Anzeige; loslassen -> weiterspielen
-; Ungueltige Zuege (Rand, schon besucht) werden ignoriert. Taste halten, bis der Springer springt.
-; Nach jedem Zug prueft das Programm, ob es noch einen Zug gibt. Wenn nicht: Spielende,
-; Anzeige = Punkte (64 = gewonnen, alle Felder besucht), Programm bleibt in einer Endlosschleife.
-; Waehrend des Spiels ist die Anzeige aus: die Matrix nimmt ein Bild nur bei 9,3 ms je Befehl an.
-; Matrix vor RUN einschalten (Weboberflaeche: LED on, Emulator2090: m). Zwischen den Bildern schlaeft sie
-;   (ACK 15, kein REQ, Ausgaenge werden ignoriert), damit das Keypad Eingang 1 und die Ausgaenge nutzen kann;
-;   vor dem Bild weckt F, dann folgt ACK 1 mit den 16 Registern.
-; Das Programm loescht R und M selbst (CLEAR/EXRL/EXRM/CLEAR). 246 Schritte (00-F5), frei: 10.
-; Version 06: ESP2090 Studio (Schlaf/Wecken statt Umschaltsignal, Schlaf-Routine am Ende), 3 Schritte weniger.
-; Version 07: nach dem Wecken auf REQ warten statt ACK 1 blind zu senden (+2 Schritte).
-; Version 08: Wecken als Handshake. Das F bleibt stehen, bis der ESP mit REQ antwortet, dann folgt direkt
-;   ACK 1 (keine 0 dazwischen). So geht kein Wecken verloren, egal wie spaet der ESP nachsieht.
-; Version 09: Der ESP schlaeft nach dem Bild von selbst wieder ein (ACK direkt aus dem gehaltenen F =
-;   ein Befehl je Wecken). Das Schlafenlegen mit ACK 15 entfaellt, das Programm wartet nur noch beim
-;   Wecken auf REQ. Das erste Bild kommt jetzt vor der ersten Keypad-Abfrage.
+; Farben: aktuelles Feld gelb, besuchte Felder rot (nichts blinkt).
+; Jede ungueltige Taste (keine Springertaste, ueber den Rand, schon besucht) zeigt alle moeglichen Zielfelder
+;   gruen; sie bleiben stehen, bis ein gueltiger Zug ausgefuehrt ist.
+; Waehrend das Programm auf eine Taste wartet, zeigt das Display die besuchten Felder (dezimal).
+; Nach jedem Zug prueft das Programm, ob es noch einen Zug gibt.  Wenn nicht: Spielende, die Anzeige zeigt
+;   die besuchten Felder (64 = gewonnen), das Programm bleibt in einer Endlosschleife.
+; Start: Matrix einschalten (Weboberflaeche: LED on, Emulator2090: m), dann RUN.  Das Programm loescht R und M selbst.
+; Die Matrix bleibt dauernd wach; das Programm zeichnet nur mit Zeichenbefehlen (ACK 3, 4, 13, 14) und sendet
+;   keine ganzen Bilder.  Der ESP merkt sich das Bild.  Vor jedem Befehl ist das Display aus (9,3 ms je Befehl).
+; Version 10: Tasten statt Keypad, Farben statt Blinken, Hinweise (gruen) mit push/pop der Bitmatrix auf dem
+;   ESP-Stapel, keine Bilder im Blockmodus mehr (die Matrix schlaeft nie), Punkte immer in der Anzeige.
+; Version 09: ESP2090 Studio mit Schlafen und Wecken (Handshake mit gehaltenem F), Keypad, blinkendes Feld.
+;
+; Register:
+;   R0 Hilfsregister (Taste, DIN, Zwischenwerte; ausserhalb der Fenster)
+;   R1 P (Brettregister 0-F des zuletzt berechneten Feldes)   R2 K (Maske des Feldes)
+;   R3 X, R4 Y   aktuelles Feld (X 0-7 links nach rechts, Y 0-7 unten nach oben)
+;   R5 dx, R6 dy Sprung der Taste bzw. der gerade geprueften Richtung
+;   R7 gefunden (Durchlauf: mindestens ein freies Zielfeld)
+;   R8 X, R9 Y   Zielfeld (Pos und Matrix-Befehle arbeiten mit R8, R9)
+;   RA Hinweise sichtbar (1)   RB 0 = Einzelpruefung, F-8 = Durchlauf ueber alle 8 Richtungen
+;   RC Zaehler Einer, RD Zaehler Zehner (besuchte Felder dezimal; DISP 2,C zeigt RD RC)
+;   RE ACK / P (Hilfsregister)   RF erstes Nibble / Summand
+; Brett in M0-MF: Brettregister P = 2Y + (X >= 4), Bit K = 1 << (X mod 4) = Feld besucht.
+; Es gibt nur eine Ruecksprungadresse: Unterprogramme rufen kein anderes mit CALL auf (Einspruenge enden mit GOTO).
 
-; Register R8-RF (Variablen):
-;   8 X (Spalte 0-7, 0 = links)   9 Y (Zeile 0-7, 0 = unten)
-;   A BLINK (1 = aktuelles Feld gerade dunkel)   B GEHALTEN (1 = Taste war schon gedrueckt;
-;     8-F = Pruefung der Zugmoeglichkeiten, Richtung B-8; F = nach dem Bild pruefen)
-;   C ZAEHLER Einer   D ZAEHLER Zehner (besuchte Felder dezimal, 64 = gewonnen; DISP 2,C zeigt ihn)
-;   E P (Registernummer des Feldes 0-F; Hilfsregister)   F DELTA / Ergebnis von Zugriff
-; R0-R7 Hilfsregister ausserhalb der Fenster:
-;   0 DIN / Kopie von P   1 P des aktuellen Feldes   2 Maske K   3,4 alte X,Y   5 dx   6 dy
-;   7 H = welche Brett-Haelfte gerade in M0-M7 liegt (0 = unten Zeile 1-4, 8 = oben Zeile 5-8)
-; Brett in M0-MF im Matrixformat: Zeile y = M(2y) links (Spalte 1-4), M(2y+1) rechts
-; Pruefung: gibt es vom aktuellen Feld noch einen Zug? 8 Richtungen ueber den Zug-Code,
-; Start mit der Richtung des letzten Zuges (R5,R6), dreimal um 90 Grad drehen,
-; dann x/y tauschen und nochmal dreimal drehen (die Gegenrichtung ist immer besucht)
-; Punkte: Taste 0 gehalten -> Zaehler anzeigen, bis sie losgelassen wird
-; Pos: E = R1 = 2Y + (X >= 4), R2 = Maske 1 << (X mod 4)
-; Zugriff: Brettregister M[E] = M[E] + F, danach F = neuer Wert; benutzt R0, aendert E
-; Die gebrauchte Haelfte wird nur getauscht, wenn sie nicht schon in M0-M7 liegt (H in R7).
+; ---------- 1. Start: Brett leer, Matrix leer, Startfeld zufaellig ----------
+F02   ; 00  START: DISOUT      Display aus: die Matrix nimmt Befehle nur bei 9,3 ms je Befehl an
+F08   ; 01  CLEAR              R und M loeschen (Brett leer): R0-RF = 0 ...
+F0D   ; 02  EXRL               
+F0E   ; 03  EXRM               
+F08   ; 04  CLEAR              ... und M0-MF = 0.  Das Brett liegt in M0-MF: Bit = Feld besucht
+13E   ; 05  MOVI 3,E           ACK 3: ganze Matrix ...
+13F   ; 06  MOVI 3,F           ... in Zeichenart 3 = alle Pixel aus (die Farben bleiben)
+BCA   ; 07  CALL CMD           
+F05   ; 08  RND                Startfeld zufaellig
+0D8   ; 09  MOV D,8            X = 0-7 (Spalte, 0 = links)
+378   ; 0A  ANDI 7,8           
+0E9   ; 0B  MOV E,9            Y = 0-7 (Zeile, 0 = unten)
+379   ; 0C  ANDI 7,9           
+10D   ; 0D  MOVI 0,D           Zaehler = 1 (Startfeld), dezimal in RD RC
+11C   ; 0E  MOVI 1,C           
+083   ; 0F  MOV 8,3            aktuelles Feld X, Y nach R3, R4
+094   ; 10  MOV 9,4            
+B80   ; 11  CALL POS           P (R1 = RE) und Maske K (R2) des Feldes
+02F   ; 12  MOV 2,F            F = +K: Feld besucht
+B8F   ; 13  CALL ZUGR          in das Brett eintragen
+13F   ; 14  MOVI 3,F           Farbe 3 = gelb: so sieht man das aktuelle Feld
+BC9   ; 15  CALL COLOR         
+BC2   ; 16  CALL PTON          Startfeld anzeigen (gelb)
 
-F08   ; 00  Beginn:   CLEAR        R und M loeschen (Brett leer)
-F0D   ; 01            EXRL
-F0E   ; 02            EXRM
-F08   ; 03            CLEAR
-F02   ; 04            DISOUT       Display aus: 9,3 ms je Befehl (Matrix-Takt)
-F05   ; 05            RND          Startfeld zufaellig
-0D8   ; 06            MOV D,8
-378   ; 07            ANDI 7,8     X = 0-7
-0E9   ; 08            MOV E,9
-379   ; 09            ANDI 7,9     Y = 0-7
-10D   ; 0A            MOVI 0,D     Zaehler = 1 (Startfeld)
-11C   ; 0B            MOVI 1,C
-BAF   ; 0C            CALL Pos
-02F   ; 0D            MOV 2,F      Startfeld setzen
-BBE   ; 0E            CALL Zugriff
-C6B   ; 0F            GOTO Anzeige erstes Bild vor der ersten Keypad-Abfrage (danach schlaeft die Matrix)
-11E   ; 10  Scan:     MOVI 1,E     Keypad-Zeile 1 (Tasten 1, 2)
-FEE   ; 11            DOT E
-FD0   ; 12            DIN 0
-F90   ; 13            SHR 0        Taste 0 (Bit 1) -> Carry
-DA7   ; 14            BRC Punkte
-330   ; 15            ANDI 3,0     Tasten 1, 2 (nach SHR Wert 1, 2)
-E1A   ; 16            BRZ S2
-FA0   ; 17            SHL 0        zurueck auf Wert 2, 4
-1E6   ; 18            MOVI E,6     dy = -2
-C2E   ; 19            GOTO SpA
-12E   ; 1A  S2:       MOVI 2,E     Zeile 2 (Tasten 4, 7)
-FEE   ; 1B            DOT E
-FD0   ; 1C            DIN 0
-390   ; 1D            ANDI 9,0
-E21   ; 1E            BRZ S3
-1F6   ; 1F            MOVI F,6     dy = -1
-C33   ; 20            GOTO SpB
-14E   ; 21  S3:       MOVI 4,E     Zeile 3 (Tasten 8, B)
-FEE   ; 22            DOT E
-FD0   ; 23            DIN 0
-390   ; 24            ANDI 9,0
-E28   ; 25            BRZ S4
-116   ; 26            MOVI 1,6     dy = +1
-C33   ; 27            GOTO SpB
-18E   ; 28  S4:       MOVI 8,E     Zeile 4 (Tasten D, E)
-FEE   ; 29            DOT E
-FD0   ; 2A            DIN 0
-360   ; 2B            ANDI 6,0
-E60   ; 2C            BRZ Keine
-126   ; 2D            MOVI 2,6     dy = +2, weiter in SpA
-1F5   ; 2E  SpA:      MOVI F,5     Spalte 2 (Taste 1, D): dx = -1
-920   ; 2F            CMPI 2,0
-E37   ; 30            BRZ Taste
-115   ; 31            MOVI 1,5     Spalte 3 (Taste 2, E): dx = +1
-C37   ; 32            GOTO Taste
-1E5   ; 33  SpB:      MOVI E,5     Spalte 1 (Taste 4, 8): dx = -2
-910   ; 34            CMPI 1,0
-E37   ; 35            BRZ Taste
-125   ; 36            MOVI 2,5     Spalte 4 (Taste 7, B): dx = +2
-90B   ; 37  Taste:    CMPI 0,B     Carry = Taste wird noch gehalten
-11B   ; 38            MOVI 1,B     MOVI laesst Carry stehen
-D61   ; 39            BRC Blink    gehalten: wie keine Taste
-90A   ; 3A            CMPI 0,A     aktuelles Feld gerade dunkel?
-E40   ; 3B            BRZ Zug
-01E   ; 3C            MOV 1,E      ja: wieder einschalten
-02F   ; 3D            MOV 2,F
-BBE   ; 3E            CALL Zugriff
-10A   ; 3F            MOVI 0,A
-083   ; 40  Zug:      MOV 8,3      alte Lage merken
-094   ; 41            MOV 9,4
-458   ; 42            ADD 5,8
-469   ; 43            ADD 6,9
-978   ; 44            CMPI 7,8     ausserhalb (Ergebnis 8-F)?
-D4D   ; 45            BRC Zurueck
-979   ; 46            CMPI 7,9
-D4D   ; 47            BRC Zurueck
-BAF   ; 48            CALL Pos
-10F   ; 49            MOVI 0,F     nur lesen
-BBE   ; 4A            CALL Zugriff
-22F   ; 4B            AND 2,F      Feld schon besucht?
-E53   ; 4C            BRZ Frei
-038   ; 4D  Zurueck:  MOV 3,8      ungueltiger Zug: alte Lage
-049   ; 4E            MOV 4,9
-97B   ; 4F            CMPI 7,B     Pruefung: naechste Richtung
-D92   ; 50            BRC PrNext
-BAF   ; 51            CALL Pos     P und Maske wieder fuer das aktuelle Feld
-C61   ; 52            GOTO Blink
-97B   ; 53  Frei:     CMPI 7,B     Pruefung: freies Feld gefunden
-DA0   ; 54            BRC PrFrei
-1FB   ; 55            MOVI F,B     nach dem Bild pruefen, ob es weitergeht
-01E   ; 56            MOV 1,E      neues Feld setzen (Pos lief schon)
-02F   ; 57            MOV 2,F
-BBE   ; 58            CALL Zugriff
-51C   ; 59            ADDI 1,C     Zaehler + 1 (dezimal)
-99C   ; 5A            CMPI 9,C
-D5D   ; 5B            BRC Zehner
-C6B   ; 5C            GOTO Anzeige
-10C   ; 5D  Zehner:   MOVI 0,C
-51D   ; 5E            ADDI 1,D
-C6B   ; 5F            GOTO Anzeige neues Feld zuerst hell zeigen
-10B   ; 60  Keine:    MOVI 0,B     keine Taste
-01E   ; 61  Blink:    MOV 1,E      aktuelles Feld umschalten
-02F   ; 62            MOV 2,F      F = +K (einschalten)
-90A   ; 63            CMPI 0,A
-E67   ; 64            BRZ BlAus
-10A   ; 65            MOVI 0,A
-C6A   ; 66            GOTO BlTun
-10F   ; 67  BlAus:    MOVI 0,F     F = -K (ausschalten)
-62F   ; 68            SUB 2,F
-11A   ; 69            MOVI 1,A
-BBE   ; 6A  BlTun:    CALL Zugriff
-907   ; 6B  Anzeige:  CMPI 0,7     untere Haelfte muss in M0-M7 liegen
-E73   ; 6C            BRZ AnzEin
-F0D   ; 6D            EXRL         Haelften tauschen, R bleibt gleich
-F0E   ; 6E            EXRM
-F0F   ; 6F            EXRA
-F0D   ; 70            EXRL
-F0E   ; 71            EXRM
-107   ; 72            MOVI 0,7
-1FE   ; 73  AnzEin:   MOVI F,E     Matrix wecken: F anlegen und halten ...
-FEE   ; 74            DOT E
-F0D   ; 75            EXRL         R0-R7 = Brett unten
-FDE   ; 76  Bereit:   DIN E        ... bis der ESP mit REQ antwortet (danach = 1 = ACK)
-31E   ; 77            ANDI 1,E
-E76   ; 78            BRZ Bereit
-FEE   ; 79            DOT E        ACK 1 direkt nach dem F
-F0E   ; 7A            EXRM         genau ein Befehl zwischen ACK und erstem Wert: R8-RF = Brett oben
-FE0   ; 7B            DOT 0
-FE1   ; 7C            DOT 1
-FE2   ; 7D            DOT 2
-FE3   ; 7E            DOT 3
-FE4   ; 7F            DOT 4
-FE5   ; 80            DOT 5
-FE6   ; 81            DOT 6
-FE7   ; 82            DOT 7
-FE8   ; 83            DOT 8
-FE9   ; 84            DOT 9
-FEA   ; 85            DOT A
-FEB   ; 86            DOT B
-FEC   ; 87            DOT C
-FED   ; 88            DOT D
-FEE   ; 89            DOT E
-FEF   ; 8A            DOT F
-F0E   ; 8B            EXRM
-10E   ; 8C            MOVI 0,E     Ausgaenge 0: Uebertragung fertig
-FEE   ; 8D            DOT E
-F0D   ; 8E            EXRL
-97B   ; 8F            CMPI 7,B     gerade gezogen? -> Pruefung (siehe unten)
-D40   ; 90            BRC Zug
-C10   ; 91            GOTO Scan
-71B   ; 92  PrNext:   SUBI 1,B
-97B   ; 93            CMPI 7,B
-EA5   ; 94            BRZ Fertig   alle 8 Richtungen gesperrt
-9BB   ; 95            CMPI B,B
-E9C   ; 96            BRZ PrTausch
-060   ; 97            MOV 6,0      drehen: (dx,dy) -> (-dy,dx)
-056   ; 98            MOV 5,6
-105   ; 99            MOVI 0,5
-605   ; 9A            SUB 0,5
-C40   ; 9B            GOTO Zug
-050   ; 9C  PrTausch: MOV 5,0      dx und dy tauschen
-065   ; 9D            MOV 6,5
-006   ; 9E            MOV 0,6
-C40   ; 9F            GOTO Zug
-038   ; A0  PrFrei:   MOV 3,8      es geht weiter: aktuelle Lage zurueck
-049   ; A1            MOV 4,9
-BAF   ; A2            CALL Pos
-11B   ; A3            MOVI 1,B     Taste gilt weiter als gehalten
-C10   ; A4            GOTO Scan
-F2C   ; A5  Fertig:   DISP 2,C     kein Zug mehr: Punkte anzeigen (64 = gewonnen)
-CA6   ; A6  Ende:     GOTO Ende
-F2C   ; A7  Punkte:   DISP 2,C     Anzeige an (Matrix behaelt ihr Bild)
-11E   ; A8  PkWarte:  MOVI 1,E     Keypad-Zeile 1
-FEE   ; A9            DOT E
-FD0   ; AA            DIN 0
-F90   ; AB            SHR 0        Taste 0 noch gedrueckt?
-DA8   ; AC            BRC PkWarte
-F02   ; AD            DISOUT       Anzeige aus: wieder Matrix-Takt
-C10   ; AE            GOTO Scan
-09E   ; AF  Pos:      MOV 9,E
-4EE   ; B0            ADD E,E
-938   ; B1            CMPI 3,8
-FBE   ; B2            ADC E
-0E1   ; B3            MOV E,1
-082   ; B4            MOV 8,2      X mod 4 = 0,1,2,3
-332   ; B5            ANDI 3,2
-512   ; B6            ADDI 1,2     1,2,3,4
-922   ; B7            CMPI 2,2
-DBA   ; B8            BRC PsHoch
-F07   ; B9            RET          1, 2 stimmen schon
-722   ; BA  PsHoch:   SUBI 2,2     3,4 -> 1,2 -> 4,8
-422   ; BB            ADD 2,2
-422   ; BC            ADD 2,2
-F07   ; BD            RET
-0E0   ; BE  Zugriff:  MOV E,0
-380   ; BF            ANDI 8,0     gebrauchte Haelfte 0 / 8
-807   ; C0            CMP 0,7
-EC8   ; C1            BRZ Auf
-F0D   ; C2            EXRL         Haelften tauschen, R bleibt gleich
-F0E   ; C3            EXRM
-F0F   ; C4            EXRA
-F0D   ; C5            EXRL
-F0E   ; C6            EXRM
-007   ; C7            MOV 0,7      H merken
-37E   ; C8  Auf:      ANDI 7,E
-F0D   ; C9            EXRL         Fenster: R0-R7 = Brett
-93E   ; CA            CMPI 3,E
-DE1   ; CB            BRC AHoch
-91E   ; CC            CMPI 1,E
-DD7   ; CD            BRC A23
-ED3   ; CE            BRZ L1
-4F0   ; CF  L0:       ADD F,0
-00F   ; D0            MOV 0,F
-F0D   ; D1            EXRL         Fenster zu
-F07   ; D2            RET
-4F1   ; D3  L1:       ADD F,1
-01F   ; D4            MOV 1,F
-F0D   ; D5            EXRL         Fenster zu
-F07   ; D6            RET
-92E   ; D7  A23:      CMPI 2,E
-EDD   ; D8            BRZ L2
-4F3   ; D9  L3:       ADD F,3
-03F   ; DA            MOV 3,F
-F0D   ; DB            EXRL         Fenster zu
-F07   ; DC            RET
-4F2   ; DD  L2:       ADD F,2
-02F   ; DE            MOV 2,F
-F0D   ; DF            EXRL         Fenster zu
-F07   ; E0            RET
-95E   ; E1  AHoch:    CMPI 5,E
-DEC   ; E2            BRC A67
-EE8   ; E3            BRZ L5
-4F4   ; E4  L4:       ADD F,4
-04F   ; E5            MOV 4,F
-F0D   ; E6            EXRL         Fenster zu
-F07   ; E7            RET
-4F5   ; E8  L5:       ADD F,5
-05F   ; E9            MOV 5,F
-F0D   ; EA            EXRL         Fenster zu
-F07   ; EB            RET
-96E   ; EC  A67:      CMPI 6,E
-EF2   ; ED            BRZ L6
-4F7   ; EE  L7:       ADD F,7
-07F   ; EF            MOV 7,F
-F0D   ; F0            EXRL         Fenster zu
-F07   ; F1            RET
-4F6   ; F2  L6:       ADD F,6
-06F   ; F3            MOV 6,F
-F0D   ; F4  Zu:       EXRL         Fenster zu
-F07   ; F5            RET
+; ---------- 2. Hauptschleife: Taste lesen, Zug oder Hinweis ----------
+; Waehrend die Taste erwartet wird, zeigt das Display die besuchten Felder (dezimal).
+F2C   ; 17  LOOP: DISP 2,C     Punkte anzeigen, solange auf die Taste gewartet wird
+FF0   ; 18  KIN 0              Taste 0-F nach R0
+F02   ; 19  DISOUT             Display aus fuer die Matrix-Befehle
+; Die Tasten liegen wie auf einem 4x4-Feld: k = 4 * Reihe + Spalte (Reihe 0 = Tasten 0-3).
+; Reihe und Spalte 0, 1, 2, 3 bedeuten -2, -1, +1, +2.  So entsteht der Sprung (dx, dy):
+;   D: -1,+2  E: +1,+2  8: -2,+1  B: +2,+1  4: -2,-1  7: +2,-1  1: -1,-2  2: +1,-2
+; Wert = Zahl + (Zahl > 1) - 2: CMPI setzt den Carry fuer Zahl > 1, ADC addiert ihn.
+005   ; 1A  MOV 0,5            dx aus der Spalte k mod 4
+335   ; 1B  ANDI 3,5           
+915   ; 1C  CMPI 1,5           Carry = 1, wenn Spalte > 1
+FB5   ; 1D  ADC 5              + Carry
+725   ; 1E  SUBI 2,5           dx = Spalte - 2 + Carry
+006   ; 1F  MOV 0,6            dy aus der Reihe k div 4
+F96   ; 20  SHR 6              
+F96   ; 21  SHR 6              
+916   ; 22  CMPI 1,6           
+FB6   ; 23  ADC 6              
+726   ; 24  SUBI 2,6           dy = Reihe - 2 + Carry
+; Gueltige Tasten: |dx| und |dy| sind 1 und 2 (oder 2 und 1).  Ecktasten (0 3 C F) haben 2 und 2,
+; die mittleren Tasten (5 6 9 A) haben 1 und 1: dann ist dx + dy gerade.  Gueltig = dx + dy ungerade.
+050   ; 25  MOV 5,0            
+460   ; 26  ADD 6,0            R0 = dx + dy
+310   ; 27  ANDI 1,0           Bit 1 = ungerade
+E53   ; 28  BRZ INVAL          gerade: keine Springertaste -> Hinweise
+10B   ; 29  MOVI 0,B           B = 0: Einzelpruefung dieses Zuges (kein Durchlauf aller Richtungen)
+
+; ---------- 3. PROBE: ist das Zielfeld (X+dx, Y+dy) frei? ----------
+; Wird auch vom Durchlauf aller 8 Richtungen benutzt (B = F ... 8).  Das Zielfeld liegt in R8, R9.
+038   ; 2A  PROBE: MOV 3,8     Ziel = aktuelles Feld + (dx, dy)
+049   ; 2B  MOV 4,9            
+458   ; 2C  ADD 5,8            
+469   ; 2D  ADD 6,9            
+978   ; 2E  CMPI 7,8           ausserhalb des Bretts? (negativ erscheint als 8-F)
+D37   ; 2F  BRC BAD            
+979   ; 30  CMPI 7,9           
+D37   ; 31  BRC BAD            
+B80   ; 32  CALL POS           P und Maske K des Zielfeldes
+10F   ; 33  MOVI 0,F           nur lesen
+B8F   ; 34  CALL ZUGR          F = Brettregister des Feldes
+22F   ; 35  AND 2,F            Feld schon besucht?
+E3A   ; 36  BRZ FREE           nein -> frei
+90B   ; 37  BAD: CMPI 0,B      B > 0: Durchlauf, weiter mit der naechsten Richtung
+D40   ; 38  BRC NEXT           
+C53   ; 39  GOTO INVAL         Einzelpruefung: Zug nicht moeglich -> Hinweise
+90B   ; 3A  FREE: CMPI 0,B     
+E60   ; 3B  BRZ MOVE           Einzelpruefung: Zug ausfuehren
+117   ; 3C  MOVI 1,7           Durchlauf: es gibt mindestens einen Zug
+90A   ; 3D  CMPI 0,A           Hinweise zeigen?
+E40   ; 3E  BRZ NEXT           nein (nur zaehlen)
+BC2   ; 3F  CALL PTON          ja: Zielfeld in der aktiven Farbe (gruen) anschalten
+
+; ---------- 4. Naechste Richtung ----------
+; 8 Richtungen aus (dx, dy) = (1, 2): dreimal um 90 Grad drehen (dx, dy) -> (-dy, dx),
+; dann dx und dy tauschen und nochmal dreimal drehen.  B zaehlt F ... 8, bei 7 ist alles probiert.
+71B   ; 40  NEXT: SUBI 1,B     
+97B   ; 41  CMPI 7,B           
+E4E   ; 42  BRZ PEND           alle 8 Richtungen probiert
+9BB   ; 43  CMPI B,B           
+E4A   ; 44  BRZ SWAP           nach 4 Richtungen: dx und dy tauschen
+060   ; 45  MOV 6,0            drehen: (dx, dy) -> (-dy, dx)
+056   ; 46  MOV 5,6            
+105   ; 47  MOVI 0,5           
+605   ; 48  SUB 0,5            
+C2A   ; 49  GOTO PROBE         
+050   ; 4A  SWAP: MOV 5,0      dx und dy tauschen
+065   ; 4B  MOV 6,5            
+006   ; 4C  MOV 0,6            
+C2A   ; 4D  GOTO PROBE         
+90A   ; 4E  PEND: CMPI 0,A     Durchlauf fertig. Hinweise gezeigt?
+D17   ; 4F  BRC LOOP           ja: auf die naechste Taste warten
+907   ; 50  CMPI 0,7           nur gezaehlt: gab es einen Zug?
+E7E   ; 51  BRZ END            nein: Spielende
+C17   ; 52  GOTO LOOP          
+
+; ---------- 5. Hinweise: keine Springertaste oder Zug nicht moeglich ----------
+; Bleiben stehen, bis ein gueltiger Zug ausgefuehrt wird.  Vor den gruenen Punkten wird die Bitmatrix auf
+; den Stapel des ESP gelegt (push, ACK 13); beim Zug holt pop sie zurueck: ein Befehl loescht alle Hinweise.
+90A   ; 53  INVAL: CMPI 0,A    Hinweise schon sichtbar?
+D17   ; 54  BRC LOOP           ja: nichts tun
+11A   ; 55  MOVI 1,A           A = 1: Hinweise sichtbar
+12F   ; 56  MOVI 2,F           ACK 13, 2 = push der Bitmatrix
+1DE   ; 57  MOVI D,E           
+BCA   ; 58  CALL CMD           
+14F   ; 59  MOVI 4,F           Farbe 4 = gruen
+BC9   ; 5A  CALL COLOR         
+115   ; 5B  PINIT: MOVI 1,5    Durchlauf ueber alle 8 Richtungen: erste Richtung (1, 2)
+126   ; 5C  MOVI 2,6           
+1FB   ; 5D  MOVI F,B           B = F
+107   ; 5E  MOVI 0,7           R7 = 0: noch kein Zug gefunden
+C2A   ; 5F  GOTO PROBE         
+
+; ---------- 6. Zug ausfuehren ----------
+; Das Zielfeld steht in R8, R9; P (R1) und Maske K (R2) sind noch von PROBE.
+90A   ; 60  MOVE: CMPI 0,A     Hinweise sichtbar?
+E66   ; 61  BRZ MV1            
+10A   ; 62  MOVI 0,A           A = 0
+16F   ; 63  MOVI 6,F           ACK 13, 6 = pop der Bitmatrix: Hinweise weg
+1DE   ; 64  MOVI D,E           
+BCA   ; 65  CALL CMD           
+01E   ; 66  MV1: MOV 1,E       neues Feld besucht
+02F   ; 67  MOV 2,F            
+B8F   ; 68  CALL ZUGR          
+085   ; 69  MOV 8,5            Ziel in R5, R6 merken
+096   ; 6A  MOV 9,6            
+038   ; 6B  MOV 3,8            altes Feld ...
+049   ; 6C  MOV 4,9            
+11F   ; 6D  MOVI 1,F           Farbe 1 = rot: besuchtes Feld
+BC9   ; 6E  CALL COLOR         
+BC6   ; 6F  CALL PTCOL         ... nur umfaerben (Zeichenart 0: das Pixel bleibt an)
+058   ; 70  MOV 5,8            Ziel wird das aktuelle Feld
+069   ; 71  MOV 6,9            
+083   ; 72  MOV 8,3            
+094   ; 73  MOV 9,4            
+13F   ; 74  MOVI 3,F           Farbe 3 = gelb
+BC9   ; 75  CALL COLOR         
+BC2   ; 76  CALL PTON          neues Feld gelb anschalten
+51C   ; 77  ADDI 1,C           Zaehler + 1 (dezimal)
+99C   ; 78  CMPI 9,C           
+D7B   ; 79  BRC ZEHN           
+C5B   ; 7A  GOTO PINIT         gibt es noch einen Zug?
+10C   ; 7B  ZEHN: MOVI 0,C     
+51D   ; 7C  ADDI 1,D           
+C5B   ; 7D  GOTO PINIT         
+
+; ---------- 7. Spielende: kein Zug mehr, Punkte stehen in der Anzeige (64 = gewonnen) ----------
+F2C   ; 7E  END: DISP 2,C      
+C7F   ; 7F  HALT: GOTO HALT    
+
+; ---------- 8. POS: Zielfeld (R8, R9) -> P und Maske K ----------
+; P = 2Y + (X >= 4) = Nummer des Brettregisters 0-F (R1 und RE), K = 1 << (X mod 4) (R2).
+09E   ; 80  POS: MOV 9,E       
+4EE   ; 81  ADD E,E            2Y
+938   ; 82  CMPI 3,8           Carry = 1, wenn X >= 4
+FBE   ; 83  ADC E              P = 2Y + (X >= 4)
+0E1   ; 84  MOV E,1            
+082   ; 85  MOV 8,2            X mod 4 = 0, 1, 2, 3
+332   ; 86  ANDI 3,2           
+512   ; 87  ADDI 1,2           1, 2, 3, 4
+922   ; 88  CMPI 2,2           
+D8B   ; 89  BRC PSH            
+F07   ; 8A  RET                1, 2 stimmen schon
+722   ; 8B  PSH: SUBI 2,2      3, 4 -> 1, 2 -> 4, 8
+422   ; 8C  ADD 2,2            
+422   ; 8D  ADD 2,2            
+F07   ; 8E  RET                
+
+; ---------- 9. ZUGR: Brettregister M[P] = M[P] + F, danach F = neuer Wert ----------
+; Eingabe: E = P, F = Summand (+K setzen, 0 nur lesen), R9 = Y des Feldes.  Y >= 4: obere Haelfte (P >= 8).
+; Die Haelfte wird in R0-R7 eingeblendet (EXRL bzw. EXRA, EXRM, EXRA); R8-RF bleiben unveraendert.
+939   ; 8F  ZUGR: CMPI 3,9     Y >= 4?
+D93   ; 90  BRC ZUP            
+F0D   ; 91  EXRL               untere Haelfte M0-M7 in R0-R7
+C96   ; 92  GOTO ZSEL          
+F0F   ; 93  ZUP: EXRA          obere Haelfte M8-MF in R0-R7
+F0E   ; 94  EXRM               
+F0F   ; 95  EXRA               
+37E   ; 96  ZSEL: ANDI 7,E     Register 0-7 im Fenster
+93E   ; 97  CMPI 3,E           
+DAA   ; 98  BRC Z47            
+91E   ; 99  CMPI 1,E           
+DA2   ; 9A  BRC Z23            
+E9F   ; 9B  BRZ Z1             
+4F0   ; 9C  Z0: ADD F,0        
+00F   ; 9D  MOV 0,F            
+CBA   ; 9E  GOTO ZT            
+4F1   ; 9F  Z1: ADD F,1        
+01F   ; A0  MOV 1,F            
+CBA   ; A1  GOTO ZT            
+92E   ; A2  Z23: CMPI 2,E      
+EA7   ; A3  BRZ Z2             
+4F3   ; A4  Z3: ADD F,3        
+03F   ; A5  MOV 3,F            
+CBA   ; A6  GOTO ZT            
+4F2   ; A7  Z2: ADD F,2        
+02F   ; A8  MOV 2,F            
+CBA   ; A9  GOTO ZT            
+95E   ; AA  Z47: CMPI 5,E      
+DB3   ; AB  BRC Z67            
+EB0   ; AC  BRZ Z5             
+4F4   ; AD  Z4: ADD F,4        
+04F   ; AE  MOV 4,F            
+CBA   ; AF  GOTO ZT            
+4F5   ; B0  Z5: ADD F,5        
+05F   ; B1  MOV 5,F            
+CBA   ; B2  GOTO ZT            
+96E   ; B3  Z67: CMPI 6,E      
+EB8   ; B4  BRZ Z6             
+4F7   ; B5  Z7: ADD F,7        
+07F   ; B6  MOV 7,F            
+CBA   ; B7  GOTO ZT            
+4F6   ; B8  Z6: ADD F,6        
+06F   ; B9  MOV 6,F            
+939   ; BA  ZT: CMPI 3,9       Fenster wieder schliessen (selbe Folge)
+DBE   ; BB  BRC ZTU            
+F0D   ; BC  EXRL               
+F07   ; BD  RET                
+F0F   ; BE  ZTU: EXRA          
+F0E   ; BF  EXRM               
+F0F   ; C0  EXRA               
+F07   ; C1  RET                
+
+; ---------- 10. Matrix-Befehle (Zeichenmodus des ESP2090, die Matrix bleibt dauernd wach) ----------
+; CMD: E = ACK, F = erstes Nibble, R9 = zweites Nibble (Y des Zielfeldes; bei Befehlen mit einem Nibble ohne Bedeutung).
+; Zeichenart steckt in X (+8 = Pixel und Farbe) und Y (+8 = Ausschnitt): hier nur ohne +8 und mit X + 8.
+; Die Einspruenge enden mit GOTO CMD statt CALL: es gibt nur eine Ruecksprungadresse.
+08F   ; C2  PTON: MOV 8,F      Punkt (ACK 4): Pixel an, in der aktiven Farbe: X + 8
+58F   ; C3  ADDI 8,F           
+14E   ; C4  MOVI 4,E           
+CCA   ; C5  GOTO CMD           
+08F   ; C6  PTCOL: MOV 8,F     Punkt (ACK 4) ohne +8: nur die Farbe, das Pixel bleibt, wie es ist
+14E   ; C7  MOVI 4,E           
+CCA   ; C8  GOTO CMD           
+1EE   ; C9  COLOR: MOVI E,E    ACK 14: aktive Farbe F (1 rot, 3 gelb, 4 gruen); weiter in CMD
+FD0   ; CA  CMD: DIN 0         auf REQ warten
+310   ; CB  ANDI 1,0           
+ECA   ; CC  BRZ CMD            
+FEE   ; CD  DOT E              ACK
+FEF   ; CE  DOT F              Nibble 1
+FE9   ; CF  DOT 9              Nibble 2
+100   ; D0  MOVI 0,0           
+FE0   ; D1  DOT 0              Ausgaenge auf 0
+F07   ; D2  RET                
