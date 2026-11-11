@@ -61,6 +61,47 @@ Das Programm arbeitet mit dem [ESP2090 Studio](https://github.com/rab-berlin/ESP
 
 Auf der Weboberfläche „LED on“ drücken, im Emulator die Matrix mit `m` einschalten. Die Matrix muss vor dem Start an sein: Das Programm wartet gleich am Anfang auf die erste Anfrage (REQ) der Matrix.
 
+## Die Warnsdorff-Regel
+
+Ein **Rösselsprung** (Springertour) besucht alle 64 Felder genau einmal. Probieren ohne Plan scheitert fast immer irgendwo um das 50. Feld: Der Springer steht auf einem Feld, von dem aus kein unbesuchtes Feld mehr erreichbar ist. Eine einfache Faustregel vermeidet das meistens:
+
+> **Springe immer auf das Zielfeld, von dem aus es danach die wenigsten weiteren freien Züge gibt.**
+
+Das ist die Regel von Warnsdorff.
+
+### So wendest du sie an
+
+1. Drücke eine ungültige Taste. Die möglichen Zielfelder leuchten grün.
+2. Zähle für jedes grüne Feld, wie viele **unbesuchte** Felder ein Springer von dort noch erreichen würde. Das Feld, auf dem du gerade stehst, und alle roten Felder zählen nicht mit.
+3. Wähle das grüne Feld mit der **kleinsten** Zahl. Bei Gleichstand nimmst du irgendeines. Dann ziehst du dorthin.
+
+Beispiel: Zwei grüne Felder A und B stehen zur Wahl. Von A aus wären noch drei freie Felder erreichbar, von B aus nur eines. Du springst nach B. Das wirkt widersinnig, weil du dir die Wahl verengst. Es ist aber der Kern der Regel.
+
+### Warum das funktioniert
+
+Ein Feld mit wenigen freien Nachbarn wird bald nicht mehr erreichbar sein, wenn man es jetzt liegen lässt: Jeder Zug auf einen seiner Nachbarn nimmt ihm einen Zugang weg. Hat ein Feld nur noch einen Zugang, ist es die letzte Gelegenheit; danach wäre es nie mehr zu besuchen. Die Regel besucht also zuerst die schwer erreichbaren Felder und spart die leicht erreichbaren für später auf. Deshalb läuft der Springer zunächst am Rand und in den Ecken entlang, und die Mitte füllt sich zum Schluss von selbst. Du siehst das im Spiel: Die roten Felder bilden erst einen Ring und schließen sich dann nach innen.
+
+### Grenzen
+
+- Es ist eine **Heuristik**, kein Beweis. Auf dem 8x8-Brett führt sie in der Regel zum Ziel, eine Garantie gibt es nicht. Bei Gleichstand kann die falsche Wahl in der Sackgasse enden.
+- Eine verbesserte Gleichstandsregel veröffentlichte Ira Pohl 1967: Bei Gleichstand zählt man die Folgezüge der Nachfolger, also einen Schritt weiter. Das kostet mehr Rechnerei.
+- Mit Warnsdorff entsteht nicht unbedingt eine **geschlossene** Tour, bei der der letzte Sprung wieder auf das Startfeld führt. Das Spiel verlangt das auch nicht.
+
+### Warum das Programm sie nicht selbst anwendet
+
+Die grünen Hinweise zeigen die möglichen Ziele. Die Warnsdorff-Zahl dazu, also die freien Folgezüge jedes Ziels, rechnet das Programm nicht aus. Das wäre mit 256 Schritten kaum noch unterzubringen. Du machst die Zählung selbst, das Programm hält nur den Zustand und zeigt die Felder. Beim Testen des Programms habe ich genau diese Regel von einer Testschleife ausführen lassen. Sie hat damit eine vollständige Tour mit 64 Feldern erreicht.
+
+## Geschichte des Rösselsprungs
+
+- Das Problem ist alt und wurde schon lange vor Euler untersucht. Die genauen frühen Quellen habe ich nicht geprüft.
+- **Leonhard Euler** analysierte es als einer der ersten systematisch. Er nannte es eine „kuriose Frage, die sich keiner Analyse fügt“, und entwickelte dann doch ein Verfahren, mit dem sich beliebig viele Touren bilden lassen. Die Frage war ihm an einem Schachabend gestellt worden, so erzählt er es selbst.
+- **H. C. von Warnsdorff** veröffentlichte 1823 in Schmalkalden seine Regel unter dem Titel *Des Rösselsprunges einfachste und allgemeinste Lösung*.
+- Wie viele Touren es gibt, wurde erst mit Computern beantwortet. Brendan McKay zählte 1997 die geschlossenen Touren auf dem 8x8-Brett: 13.267.364.410.532, wenn man Start und Richtung nicht unterscheidet. Eine kurz zuvor veröffentlichte Zahl von Martin Löbbing und Ingo Wegener (1996) war nicht durch 4 teilbar und damit falsch. Für die offenen Touren nannte Alexander Chernov 2014 etwa 1,96 · 10^16 (ob die Zahl stimmt, ist unklar).
+- Allen Schwenk bewies 1991, für welche Bretter eine geschlossene Tour existiert. Bretter mit zwei ungeraden Seiten haben keine, ebenso Bretter mit einer Seite 1, 2 oder 4.
+- Der Schriftsteller **Georges Perec** legte seinem Roman *Das Leben. Gebrauchsanweisung* einen Rösselsprung über ein 10x10-Raster zugrunde, die Kapitel folgen den Zügen. Perec gehörte zur Gruppe Oulipo, die Literatur mit mathematischen Zwängen schrieb.
+
+Quellen: Wikipedia „Knight's tour“, plus.maths.org „Knight's tour“. Die frühen Quellen vor Euler habe ich nicht selbst geprüft.
+
 ## Wie es gemacht ist
 
 Der 2090 hat keine indirekte Adressierung, rechnet nur mit 0-15 und hat nur ein Rücksprungregister. Springer passt trotzdem in 211 Schritte:
