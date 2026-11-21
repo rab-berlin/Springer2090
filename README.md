@@ -1,6 +1,6 @@
 # Springer2090
 
-Das Springerproblem (Knight's Tour) für den Busch Microtronic 2090 mit 8x8-LED-Matrix: Der Springer soll jedes Feld der Matrix genau einmal betreten. Bedient wird mit den Hex-Tasten des Microtronic, ein Keypad ist nicht nötig.
+Das Springerproblem (Knight's Tour) für den Busch Microtronic 2090 mit 8x8-LED-Matrix: Der Springer soll jedes Feld der Matrix genau einmal betreten. Bedient wird mit den Hex-Tasten des Microtronic.
 
 - 211 Programmschritte, 45 frei
 - Datei: [springer.mic](springer.mic)
@@ -8,10 +8,10 @@ Das Springerproblem (Knight's Tour) für den Busch Microtronic 2090 mit 8x8-LED-
 ## Spiel
 
 - **Start:** Das Startfeld ist zufällig.
-- **Farben:** Das aktuelle Feld leuchtet gelb, die besuchten Felder rot. Nichts blinkt.
+- **Farben:** Das aktuelle Feld leuchtet gelb, die besuchten Felder rot.
 - **Züge:** Der Springer springt wie beim Schach. Ungültige Züge (über den Rand oder auf ein besuchtes Feld) werden nicht ausgeführt.
 - **Hinweise:** Jede ungültige Taste zeigt alle möglichen Zielfelder grün. Sie bleiben stehen, bis ein gültiger Zug ausgeführt ist.
-- **Anzeige:** Das Display zeigt die besuchten Felder (dezimal), solange das Programm auf eine Taste wartet.
+- **Anzeige:** Das Display zeigt die Anzahl der besuchten Felder, solange das Programm auf eine Taste wartet.
 - **Spielende:** Nach jedem Zug prüft das Programm, ob es noch einen Zug gibt. Wenn nicht, ist das Spiel zu Ende, und die Anzeige zeigt die besuchten Felder. 64 heißt gewonnen.
 
 ## Bedienung
@@ -25,7 +25,7 @@ Die acht Sprungtasten sind so angeordnet, wie die Sprünge um die Mitte eines 4x
 | 4 / 7 | 2 links bzw. rechts, 1 runter |
 | 1 / 2 | 1 links bzw. rechts, 2 runter |
 
-Jede andere Taste (0 3 5 6 9 A C F) zeigt die Hinweise. Im [Emulator2090](https://github.com/rab-berlin/Emulator2090) sind es die Tasten `0`-`9` und `a`-`f`.
+Jede andere Taste (0 3 5 6 9 A C F) zeigt die möglichen Zielfelder.
 
 ## Start
 
@@ -35,7 +35,7 @@ Matrix einschalten („LED on“ in der Weboberfläche, im Emulator Taste `m`), 
 
 **Schreibweise in diesem README:** Ein Register heißt `R0` bis `RF` (Speicher: `M0` bis `MF`), ein Wert beginnt mit `#`, zum Beispiel `#3` oder `#F`. `RF` ist also ein Register, `#F` die Zahl fünfzehn. Die Programmzeilen sind hier mit `R` und `#` geschrieben, in der Datei `springer.mic` stehen die Nummern ohne Zusatz: `MOVI #1,RA` heißt dort `MOVI 1,A`.
 
-Das Programm schickt kein Bild mehr. Der ESP merkt sich das Bild, und das Programm ändert nur einzelne Pixel mit Zeichenbefehlen. Das Brett liegt trotzdem im Programm, in den Speicherregistern `M0`-`MF`, ein Bit je Feld (besucht oder nicht). Der ESP lässt sich nicht fragen, welche Felder besucht sind.
+Das Programm sendet nur einzelne Pixel mit Zeichenbefehlen an die Matrix. Der gesamte Brettinhalt liegt trotzdem in den Speicherregistern `M0`-`MF`, ein Bit je Feld (besucht oder nicht). Der ESP lässt sich nicht fragen, welche Felder besucht sind.
 
 | Register | Bedeutung |
 |---|---|
@@ -91,18 +91,18 @@ Ein Feld mit wenigen freien Nachbarn wird bald nicht mehr erreichbar sein, wenn 
 
 ### Warum das Programm sie nicht selbst anwendet
 
-Die grünen Hinweise zeigen die möglichen Ziele. Die Warnsdorff-Zahl dazu, also die freien Folgezüge jedes Ziels, rechnet das Programm nicht aus. Das wäre mit 256 Schritten kaum noch unterzubringen. Du machst die Zählung selbst, das Programm hält nur den Zustand und zeigt die Felder. Beim Testen des Programms habe ich genau diese Regel von einer Testschleife ausführen lassen. Sie hat damit eine vollständige Tour mit 64 Feldern erreicht.
+Die grünen Hinweise zeigen die möglichen Ziele. Die Warnsdorff-Zahl dazu, also die freien Folgezüge jedes Ziels, rechnet das Programm nicht aus. Das wäre mit 256 Schritten kaum noch unterzubringen. Du machst die Zählung selbst, das Programm hält nur den Zustand und zeigt die Felder.
 
 ## Geschichte des Rösselsprungs
 
-- Das Problem ist alt und wurde schon lange vor Euler untersucht. Die genauen frühen Quellen habe ich nicht geprüft.
+- Das Problem ist alt und wurde schon lange vor Euler untersucht.
 - **Leonhard Euler** analysierte es als einer der ersten systematisch. Er nannte es eine „kuriose Frage, die sich keiner Analyse fügt“, und entwickelte dann doch ein Verfahren, mit dem sich beliebig viele Touren bilden lassen. Die Frage war ihm an einem Schachabend gestellt worden, so erzählt er es selbst.
 - **H. C. von Warnsdorff** veröffentlichte 1823 in Schmalkalden seine Regel unter dem Titel *Des Rösselsprunges einfachste und allgemeinste Lösung*.
 - Wie viele Touren es gibt, wurde erst mit Computern beantwortet. Brendan McKay zählte 1997 die geschlossenen Touren auf dem 8x8-Brett: 13.267.364.410.532, wenn man Start und Richtung nicht unterscheidet. Eine kurz zuvor veröffentlichte Zahl von Martin Löbbing und Ingo Wegener (1996) war nicht durch 4 teilbar und damit falsch. Für die offenen Touren nannte Alexander Chernov 2014 etwa 1,96 · 10^16 (ob die Zahl stimmt, ist unklar).
 - Allen Schwenk bewies 1991, für welche Bretter eine geschlossene Tour existiert. Bretter mit zwei ungeraden Seiten haben keine, ebenso Bretter mit einer Seite 1, 2 oder 4.
 - Der Schriftsteller **Georges Perec** legte seinem Roman *Das Leben. Gebrauchsanweisung* einen Rösselsprung über ein 10x10-Raster zugrunde, die Kapitel folgen den Zügen. Perec gehörte zur Gruppe Oulipo, die Literatur mit mathematischen Zwängen schrieb.
 
-Quellen: Wikipedia „Knight's tour“, plus.maths.org „Knight's tour“. Die frühen Quellen vor Euler habe ich nicht selbst geprüft.
+Quellen: Wikipedia „Knight's tour“, plus.maths.org „Knight's tour“.
 
 ## Wie es gemacht ist
 
